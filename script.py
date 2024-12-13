@@ -36,6 +36,14 @@ async def tally_messages(year):
     user_reaction_counts = {}
     daily_activity = {}
 
+    youtube_link_counts = {}
+    discord_link_counts = {}
+    non_youtube_discord_counts = {}
+    george_message_count = 0
+
+    custom_emoji_counts = {}
+    default_emoji_counts = {}
+
     # Initialize counters for morning and evening message counts
     morning_message_counts = {}
     evening_message_counts = {}
@@ -48,12 +56,17 @@ async def tally_messages(year):
     channel_outputs = []
 
     print(f"Tallying messages...")
+
+    # Initialize a dictionary for top reactions per channel
+    top_reactions_per_channel = {channel_id: [] for channel_id in channel_list}
+    top_messages_per_channel = {channel_id: [] for channel_id in channel_list}  # Added for top 5 message senders per channel
+
     for channel_id in channel_list:
         channel = client.get_channel(channel_id)
+        
         if not channel:
-            print(f"Channel with ID {channel_id} not found.")
             continue
-
+        
         user_message_count = {}
         user_reaction_count = {}
         top_reactions = []
@@ -64,6 +77,8 @@ async def tally_messages(year):
 
         async for message in channel.history(limit=None, after=start_date, before=end_date):
             if message.author.bot:
+                if message.author.name == "George Costanza" and message.author.discriminator == "7488":
+                    george_message_count += 1
                 continue
 
             # Tally message counts
@@ -75,8 +90,23 @@ async def tally_messages(year):
             reaction_count = sum(reaction.count for reaction in message.reactions)
             if reaction_count > 0:
                 user_reaction_count[message.author.name] = user_reaction_count.get(message.author.name, 0) + reaction_count
-                top_reactions.append((message, reaction_count))
+
+                # Store additional metadata for top reactions in the channel
+                top_reactions.append({
+                    'message_content': message.content,
+                    'reaction_count': reaction_count,
+                    'author': message.author.name,
+                    'timestamp': message.created_at,
+                    'link': message.jump_url
+                })
                 total_reactions += reaction_count
+
+                # Tally custom and default emojis
+                for reaction in message.reactions:
+                    if reaction.is_custom_emoji():
+                        custom_emoji_counts[str(reaction.emoji)] = custom_emoji_counts.get(str(reaction.emoji), 0) + reaction.count
+                    else:
+                        default_emoji_counts[str(reaction.emoji)] = default_emoji_counts.get(str(reaction.emoji), 0) + reaction.count
 
             # Track daily activity
             message_date = message.created_at.strftime('%Y-%m-%d')
@@ -105,77 +135,68 @@ async def tally_messages(year):
         for user, count in user_reaction_count.items():
             user_reaction_counts[user] = user_reaction_counts.get(user, 0) + count
 
-        # Sort messages by reaction count in descending order and get the top 5
-        top_reactions.sort(key=lambda x: x[1], reverse=True)
+        # Fix: Ensure that even if there were no messages, the channel's total is set to 0
+        if message_count == 0:
+            message_count = 0
+        
+        # Print the total messages for this channel
+        print(f"Total messages in channel {channel.name}: {message_count}")
 
-        # Add the top 5 reactions to channel output
-        channel_output.append(f"\n\nTOP 5 MESSAGES WITH THE MOST REACTIONS IN {channel.name}:")
-        top_5_reactions = []
-        used_users = set()
-        for message, reaction_count in top_reactions:
-            if message.author.name not in used_users:
-                used_users.add(message.author.name)
-                top_5_reactions.append((message, reaction_count))
-                if len(top_5_reactions) == 5:
-                    break
+        # Add channel's top reactions to the overall tally
+        top_reactions_per_channel[channel_id] = top_reactions
 
-        for message, reaction_count in top_5_reactions:
-            reactors = []
-            for reaction in message.reactions:
-                async for user in reaction.users():
-                    reactors.append(user.name)
-            reactors_list = ', '.join(reactors)
-
-            channel_output.append(f"\nMessage ID: {message.id}\nAuthor: {message.author.name}\nReactions: {reaction_count}\nContent: {message.content}\nReacted by: {reactors_list}")
-
-        # Print top 5 users who sent the most messages in the current channel
-        sorted_message_counts = sorted(user_message_count.items(), key=lambda x: x[1], reverse=True)
-        channel_output.append(f"\n\nTOP 5 USERS WHO SENT THE MOST MESSAGES IN {channel.name}:")
-        used_users = set()  # Reset for users already listed
-        top_5_messages = []
-        for user, count in sorted_message_counts:
-            if user not in used_users:
-                used_users.add(user)
-                top_5_messages.append((user, count))
-                if len(top_5_messages) == 5:
-                    break
-
-        for user, count in top_5_messages:
-            channel_output.append(f"{user}: {count} messages")
-
-        # Append the channel-specific output to the list
-        channel_outputs.append("\n".join(channel_output))
+        # Collect top 5 users who sent the most messages in the channel
+        sorted_channel_message_counts = sorted(user_message_count.items(), key=lambda x: x[1], reverse=True)
+        top_messages_per_channel[channel_id] = sorted_channel_message_counts[:5]  # Store the top 5 senders
 
     # After processing all channels, print all the collected outputs
-    for output in channel_outputs:
-        print(output)
-
-    # Find the user who sent the most messages in the morning
-    most_messages_morning = max(morning_message_counts.items(), key=lambda x: x[1], default=None)
-    if most_messages_morning:
-        print(f"\nUSER WHO SENT MOST MESSAGES IN THE MORNING (3 AM to 7 AM EST): {most_messages_morning[0]} with {most_messages_morning[1]} messages")
-
-    # Find the user who sent the most messages in the evening
-    most_messages_evening = max(evening_message_counts.items(), key=lambda x: x[1], default=None)
-    if most_messages_evening:
-        print(f"USER WHO SENT MOST MESSAGES IN THE EVENING (10 PM to 2 AM EST): {most_messages_evening[0]} with {most_messages_evening[1]} messages")
-
-    # Print final results as usual
     print("\n\nFINAL RESULTS FOR THE YEAR:")
     print(f"Total messages sent: {total_messages}")
     print(f"Total reactions given: {total_reactions}")
-    print(f"New users who joined: {len(user_join_dates)}")
+    print(f"Messages sent by George Costanza: {george_message_count}")
+
+    # Print top 5 custom emojis
+    sorted_custom_emojis = sorted(custom_emoji_counts.items(), key=lambda x: x[1], reverse=True)
+    print("\nTop 5 custom emojis used:")
+    for emoji, count in sorted_custom_emojis[:5]:
+        print(f"{emoji}: {count} uses")
+
+    # Print top 5 default emojis
+    sorted_default_emojis = sorted(default_emoji_counts.items(), key=lambda x: x[1], reverse=True)
+    print("\nTop 5 default emojis used:")
+    for emoji, count in sorted_default_emojis[:5]:
+        print(f"{emoji}: {count} uses")
 
     # Print top 5 users who sent the most messages overall
     sorted_overall_message_counts = sorted(user_message_counts.items(), key=lambda x: x[1], reverse=True)
     print("\nTop 5 users who sent the most messages overall:")
-    for user, count in sorted_overall_message_counts[:5]:
+    for user, count in sorted_overall_message_counts[:11]:
         print(f"{user}: {count} messages")
 
     # Print top 5 users who gave the most reactions overall
     sorted_overall_reaction_counts = sorted(user_reaction_counts.items(), key=lambda x: x[1], reverse=True)
     print("\nTop 5 users who gave the most reactions overall:")
-    for user, count in sorted_overall_reaction_counts[:5]:
+    for user, count in sorted_overall_reaction_counts[:11]:
         print(f"{user}: {count} reactions")
+
+    # Top 5 message senders per channel
+    for channel_id in channel_list:
+        channel = client.get_channel(channel_id)
+        if channel:
+            # Print top 5 message senders in the channel
+            print(f"\nTop 5 message senders in channel {channel.name}:")
+            sorted_channel_message_counts = sorted(top_messages_per_channel[channel_id], key=lambda x: x[1], reverse=True)
+            for user, count in sorted_channel_message_counts:
+                print(f"{user}: {count} messages")
+
+            # Top 5 reaction senders per channel
+            print(f"\nTop 5 reaction senders in channel {channel.name}:")
+            sorted_user_reaction_counts = sorted(top_reactions_per_channel[channel_id], key=lambda x: x['reaction_count'], reverse=True)[:5]
+            for reaction in sorted_user_reaction_counts:
+                print(f"{reaction['author']}: {reaction['reaction_count']} reactions on message: {reaction['message_content']}")
+
+    print(f"\nSummary: George message count: {george_message_count}")
+    print(f"Custom emoji counts: {custom_emoji_counts}")
+    print(f"Default emoji counts: {default_emoji_counts}")
 
 client.run(bot_token)
