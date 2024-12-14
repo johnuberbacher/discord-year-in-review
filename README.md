@@ -22,7 +22,7 @@ This bot tallies user activity on a Discord server, counting messages, reactions
 
 1. Clone this repository:
     ```bash
-    git clone https://github.com/yourusername/discord-activity-tally-bot.git
+    git clone https://github.com/johnuberbacher/discord-year-in-review.git
     ```
 
 2. Install the required libraries:
